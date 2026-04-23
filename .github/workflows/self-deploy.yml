@@ -1,0 +1,85 @@
+name: Self-Deploy MemPalace-Everest
+
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: "Who triggered this (supabase-mcp, manual, cron)"
+        required: false
+        default: "supabase-mcp"
+
+jobs:
+  self-deploy:
+    runs-on: ubuntu-latest
+    env:
+      FORK_HEARTBEAT_TOKEN: ${{ secrets.FORK_HEARTBEAT_TOKEN }}
+      EDGE_URL: https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/fork-heartbeat
+      EVEREST_ACTIVE_WING: EverestCapital
+      REPO: breverdbidder/mempalace-everest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip install -e .
+        run: pip install -e . --quiet
+      - name: Write heartbeat config
+        run: |
+          mkdir -p "$HOME/.everest"
+          cat > "$HOME/.everest/fork-heartbeat.json" <<EOF
+          { "url": "$EDGE_URL", "token": "$FORK_HEARTBEAT_TOKEN", "repo": "$REPO" }
+          EOF
+          ls -la "$HOME/.everest/"
+      - name: Merge hooks into user-scope settings.json
+        run: |
+          mkdir -p "$HOME/.claude"
+          cat > "$HOME/.claude/settings.json" <<EOF
+          {
+            "hooks": {
+              "Stop": [{"hooks": [{"type":"command","command":"bash $GITHUB_WORKSPACE/.claude-plugin/hooks-linux/mempal-stop-hook.sh","async":true,"timeout":10}]}],
+              "PreCompact": [{"hooks": [{"type":"command","command":"bash $GITHUB_WORKSPACE/.claude-plugin/hooks-linux/mempal-precompact-hook.sh","async":true,"timeout":10}]}],
+              "SessionStart": [{"matcher":"compact","hooks":[{"type":"command","command":"bash $GITHUB_WORKSPACE/.claude-plugin/hooks-linux/mempal-session-start-compact-hook.sh","timeout":10}]}]
+            }
+          }
+          EOF
+          chmod +x "$GITHUB_WORKSPACE/.claude-plugin/hooks-linux/"*.sh
+      - name: Smoke test — POST to edge function
+        id: smoke
+        run: |
+          SID="gha-smoke-$GITHUB_RUN_ID"
+          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" \
+            '{token:$t, repo:$r, event_type:"session_start", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"installer", workflow:"self-deploy"}}')
+          RES=$(curl -sS -X POST "$EDGE_URL" -H "Content-Type: application/json" -d "$BODY")
+          echo "Smoke response: $RES"
+          echo "$RES" | jq -e '.ok == true'
+          echo "smoke_passed=true" >> $GITHUB_OUTPUT
+      - name: Hook-fire test — invoke stop-hook with synthetic stdin, poll for heartbeat
+        id: hookfire
+        run: |
+          SID="gha-hookfire-$GITHUB_RUN_ID"
+          STDIN_JSON=$(jq -nc --arg s "$SID" '{session_id:$s, transcript_path:"/tmp/test.jsonl", cwd:"'"$GITHUB_WORKSPACE"'", hook_event_name:"Stop"}')
+          echo "$STDIN_JSON" | bash "$GITHUB_WORKSPACE/.claude-plugin/hooks-linux/mempal-stop-hook.sh" || true
+          # Background curl in hook may still be in flight — poll up to 20s
+          for i in $(seq 1 10); do
+            sleep 2
+            RES=$(curl -sS "$EDGE_URL?token=$FORK_HEARTBEAT_TOKEN&session_id=$SID&event_type=stop_hook")
+            COUNT=$(echo "$RES" | jq -r '.count // 0')
+            echo "poll #$i: count=$COUNT"
+            if [ "$COUNT" -gt 0 ]; then
+              echo "VERIFIED: stop_hook heartbeat received (session_id=$SID)"
+              echo "hookfire_verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "hookfire_verified=false" >> $GITHUB_OUTPUT
+          echo "TIMEOUT — hook did not produce heartbeat within 20s"
+          exit 1
+      - name: Self-report back to Supabase
+        if: always()
+        run: |
+          SID="gha-report-$GITHUB_RUN_ID"
+          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" --arg st "${{ job.status }}" --arg ri "$GITHUB_RUN_ID" \
+            '{token:$t, repo:$r, event_type:"skill_loaded", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"self-deploy-workflow", job_status:$st, workflow_run_id:$ri, smoke:"'"${{ steps.smoke.outputs.smoke_passed }}"'", hookfire:"'"${{ steps.hookfire.outputs.hookfire_verified }}"'"}}')
+          curl -sS -X POST "$EDGE_URL" -H "Content-Type: application/json" -d "$BODY"
