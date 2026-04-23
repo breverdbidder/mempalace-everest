@@ -1,7 +1,8 @@
 {
-  "description": "MemPalace hooks — Windows PowerShell",
+  "description": "MemPalace-Everest hooks (Win PowerShell, async heartbeat)",
   "hooks": {
-    "Stop": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-stop-hook.ps1"}]}],
-    "PreCompact": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-precompact-hook.ps1"}]}]
+    "Stop": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-stop-hook.ps1","async":true,"timeout":10}]}],
+    "PreCompact": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-precompact-hook.ps1","async":true,"timeout":10}]}],
+    "SessionStart": [{"matcher":"compact","hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-session-start-compact-hook.ps1","timeout":10}]}]
   }
 }
