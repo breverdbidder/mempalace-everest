@@ -7,6 +7,9 @@ on:
         description: "Who triggered this (supabase-mcp, manual, cron)"
         required: false
         default: "supabase-mcp"
+  schedule:
+    # 09:30 UTC daily (05:30 EST) — finishes before the 10:00 UTC fork-liveness-daily pg_cron scan
+    - cron: "30 9 * * *"
 
 jobs:
   self-deploy:
@@ -16,6 +19,7 @@ jobs:
       EDGE_URL: https://mocerqjnksmhcjzxrewo.supabase.co/functions/v1/fork-heartbeat
       EVEREST_ACTIVE_WING: EverestCapital
       REPO: breverdbidder/mempalace-everest
+      TRIGGER_SOURCE: ${{ github.event_name == 'schedule' && 'cron-daily-0930utc' || github.event.inputs.trigger_source || 'workflow-dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +35,6 @@ jobs:
           cat > "$HOME/.everest/fork-heartbeat.json" <<EOF
           { "url": "$EDGE_URL", "token": "$FORK_HEARTBEAT_TOKEN", "repo": "$REPO" }
           EOF
-          ls -la "$HOME/.everest/"
       - name: Merge hooks into user-scope settings.json
         run: |
           mkdir -p "$HOME/.claude"
@@ -49,8 +52,8 @@ jobs:
         id: smoke
         run: |
           SID="gha-smoke-$GITHUB_RUN_ID"
-          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" \
-            '{token:$t, repo:$r, event_type:"session_start", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"installer", workflow:"self-deploy"}}')
+          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" --arg ts "$TRIGGER_SOURCE" \
+            '{token:$t, repo:$r, event_type:"session_start", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"installer", workflow:"self-deploy", trigger:$ts}}')
           RES=$(curl -sS -X POST "$EDGE_URL" -H "Content-Type: application/json" -d "$BODY")
           echo "Smoke response: $RES"
           echo "$RES" | jq -e '.ok == true'
@@ -61,7 +64,6 @@ jobs:
           SID="gha-hookfire-$GITHUB_RUN_ID"
           STDIN_JSON=$(jq -nc --arg s "$SID" '{session_id:$s, transcript_path:"/tmp/test.jsonl", cwd:"'"$GITHUB_WORKSPACE"'", hook_event_name:"Stop"}')
           echo "$STDIN_JSON" | bash "$GITHUB_WORKSPACE/.claude-plugin/hooks-linux/mempal-stop-hook.sh" || true
-          # Background curl in hook may still be in flight — poll up to 20s
           for i in $(seq 1 10); do
             sleep 2
             RES=$(curl -sS "$EDGE_URL?token=$FORK_HEARTBEAT_TOKEN&session_id=$SID&event_type=stop_hook")
@@ -76,10 +78,10 @@ jobs:
           echo "hookfire_verified=false" >> $GITHUB_OUTPUT
           echo "TIMEOUT — hook did not produce heartbeat within 20s"
           exit 1
-      - name: Self-report back to Supabase
+      - name: Self-report back to Supabase (always, even on failure)
         if: always()
         run: |
           SID="gha-report-$GITHUB_RUN_ID"
-          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" --arg st "${{ job.status }}" --arg ri "$GITHUB_RUN_ID" \
-            '{token:$t, repo:$r, event_type:"skill_loaded", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"self-deploy-workflow", job_status:$st, workflow_run_id:$ri, smoke:"'"${{ steps.smoke.outputs.smoke_passed }}"'", hookfire:"'"${{ steps.hookfire.outputs.hookfire_verified }}"'"}}')
+          BODY=$(jq -nc --arg t "$FORK_HEARTBEAT_TOKEN" --arg r "$REPO" --arg s "$SID" --arg w "$EVEREST_ACTIVE_WING" --arg st "${{ job.status }}" --arg ri "$GITHUB_RUN_ID" --arg ts "$TRIGGER_SOURCE" \
+            '{token:$t, repo:$r, event_type:"skill_loaded", session_id:$s, wing:$w, payload:{host:"gha-runner", source:"self-deploy-workflow", job_status:$st, workflow_run_id:$ri, smoke:"'"${{ steps.smoke.outputs.smoke_passed }}"'", hookfire:"'"${{ steps.hookfire.outputs.hookfire_verified }}"'", trigger:$ts}}')
           curl -sS -X POST "$EDGE_URL" -H "Content-Type: application/json" -d "$BODY"
