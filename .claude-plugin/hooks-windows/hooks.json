@@ -1,0 +1,7 @@
+{
+  "description": "MemPalace hooks — Windows PowerShell",
+  "hooks": {
+    "Stop": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-stop-hook.ps1"}]}],
+    "PreCompact": [{"hooks": [{"type":"command","command":"powershell -NoProfile -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/hooks-windows/mempal-precompact-hook.ps1"}]}]
+  }
+}
