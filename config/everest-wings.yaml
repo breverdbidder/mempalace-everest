@@ -1,0 +1,13 @@
+tenants:
+  - {slug: everest-capital, wing: EverestCapital}
+  - {slug: biddeed, wing: BidDeed}
+  - {slug: zonewise, wing: ZoneWise}
+  - {slug: brevard-doors, wing: BrevardDoors}
+  - {slug: property360, wing: Property360}
+  - {slug: kenstrekt, wing: Kenstrekt}
+  - {slug: protection-partners, wing: ProtectionPartners}
+  - {slug: everest-portfolio, wing: EverestPortfolio}
+halls:
+  - {name: decisions}
+  - {name: honesty-audits}
+  - {name: repo-evaluations}
