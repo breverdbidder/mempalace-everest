@@ -1,0 +1,9 @@
+MemPalace-Everest
+Copyright 2026 Everest Capital USA
+
+Derived from MemPalace (MIT): https://github.com/MemPalace/mempalace
+Derivative patterns from mem0ai/mem0 (Apache-2.0): https://github.com/mem0ai/mem0
+  mempalace/reranker/base.py  (from mem0/reranker/base.py)
+  mempalace/reranker/sentence_transformer_reranker.py
+  mempalace/entity/extraction.py  (from mem0/utils/entity_extraction.py)
+  mempalace/reranker_bridge.py  (new, Everest-authored)
